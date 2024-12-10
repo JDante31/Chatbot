@@ -9,18 +9,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# Custom CSS for better appearance
-st.markdown("""
-    <style>
-    .stChat {
-        padding: 20px;
-    }
-    .stTextInput {
-        padding: 10px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 @st.cache_resource
 def load_model():
     model_id = "microsoft/DialoGPT-small"
@@ -43,13 +31,34 @@ def generate_response(prompt, model, tokenizer, max_length=100):
             max_length=max_length,
             num_return_sequences=1,
             pad_token_id=tokenizer.eos_token_id,
-            temperature=0.7,  # Controls randomness (0.0 = deterministic, 1.0 = very random)
-            top_k=50,        # Controls diversity
-            top_p=0.9,       # Nucleus sampling
+            temperature=0.9,
+            top_k=50,
+            top_p=0.95,
+            do_sample=True,
+            # Add these parameters to prevent repetition
+            no_repeat_ngram_size=3,
+            repetition_penalty=1.2
         )
     
-    # Decode and return the response
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # Decode and clean the response
+    response = tokenizer.decode(outputs[0][inputs.shape[-1]:], skip_special_tokens=True)
+    
+    # Check for crisis keywords
+    crisis_keywords = ['suicide', 'kill', 'die', 'hurt', 'harm', 'end my life']
+    if any(keyword in prompt.lower() for keyword in crisis_keywords):
+        return ("""I notice you're expressing thoughts of harm. Please know that you're not alone, and help is available:
+
+1. Call 988 (US Suicide & Crisis Lifeline) - Available 24/7
+2. Text HOME to 741741 (Crisis Text Line)
+3. Call your local emergency number
+4. Reach out to a trusted friend, family member, or mental health professional
+
+Would you like to talk more about what's troubling you? I'm here to listen, but please remember I'm an AI and not a replacement for professional help.""")
+    
+    # If response is empty or just whitespace, provide a default response
+    if not response.strip():
+        return "I hear you. Can you tell me more about what's troubling you? Remember, I'm here to listen, though I'm not a replacement for professional help."
+    
     return response
 
 def main():
@@ -62,6 +71,10 @@ def main():
     # Initialize session state for chat history
     if "messages" not in st.session_state:
         st.session_state.messages = []
+        
+    # Initialize conversation history for the model
+    if "conversation_history" not in st.session_state:
+        st.session_state.conversation_history = []
 
     # Load model
     tokenizer, model = load_model()
@@ -82,12 +95,16 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
+        # Update conversation history
+        st.session_state.conversation_history.append(prompt)
+        
         # Generate and display response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 response = generate_response(prompt, model, tokenizer)
                 st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
+                st.session_state.conversation_history.append(response)
 
     # Add helpful resources at the bottom
     with st.expander("📚 Helpful Resources"):
